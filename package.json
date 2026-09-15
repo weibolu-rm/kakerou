@@ -1,0 +1,18 @@
+{
+	"name": "japanese-diary-review",
+	"version": "0.1.0",
+	"description": "Japanese diary review workflow for pi: teaching-judgment skill plus deterministic tracker/render tools (書けろ)",
+	"keywords": ["pi-package"],
+	"license": "MIT",
+	"type": "module",
+	"peerDependencies": {
+		"typebox": "*"
+	},
+	"devDependencies": {
+		"typebox": "*"
+	},
+	"pi": {
+		"extensions": ["./extensions"],
+		"skills": ["./skills"]
+	}
+}
