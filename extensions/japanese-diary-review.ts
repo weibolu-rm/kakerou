@@ -1025,11 +1025,12 @@ function amendReview(cwd: string, input: AmendInput): { text: string; details: u
 				);
 			}
 			deleted.add(h);
-		} else {
-			cur.count -= occ;
-			// `last` stays put: an exact regression is unknowable from aggregates;
-			// leaving it can only delay a future "fixed", never fake one.
 		}
+		// Always decrement: a pattern marked deleted but re-referenced by the
+		// amended payload (net-zero) must come back at exactly its old count.
+		// `last` stays put: an exact regression is unknowable from aggregates;
+		// leaving it can only delay a future "fixed", never fake one.
+		cur.count -= occ;
 	}
 	const resurrected: string[] = [];
 	for (const [h, occ] of newOcc) {

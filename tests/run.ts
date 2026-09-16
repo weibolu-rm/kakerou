@@ -512,6 +512,30 @@ async function main(): Promise<void> {
 		);
 	}
 
+	// 16. amend keeping a review-created pattern referenced must not double-count it
+	{
+		const dir = fixtureDir();
+		await call(dir, "diary_commit", COMMIT_0202);
+		const before = read(dir, "mistake-log.md");
+		const previous = { ...COMMIT_0202 };
+		delete previous.entry;
+		const amended = structuredClone(previous);
+		amended.scores = { ...amended.scores, correctness: 70, overall: 71 };
+		const res = await call(dir, "diary_amend", { entry: "2026-02-02", previous, amended });
+		check("amend (net-zero path) succeeds", !res.isError, res.content[0].text);
+		const after = read(dir, "mistake-log.md");
+		const section = after.split("### Embedded questions: なのか")[1]?.split("###")[0] ?? "";
+		check(
+			"re-referenced pattern keeps its count (no double-count)",
+			section.includes("- Count: 1 · First: [[2026-02-02]] · Last: [[2026-02-02]]"),
+			section.trim(),
+		);
+		check(
+			"only the rescored row and meta lines differ in the log",
+			before.split("\n").filter((l, i) => l !== after.split("\n")[i]).every((l) => /- Count:/.test(l)),
+		);
+	}
+
 	console.log(`\n${passed} passed, ${failed} failed`);
 	if (failed > 0) process.exit(1);
 }
