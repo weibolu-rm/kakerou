@@ -178,7 +178,7 @@ async function main(): Promise<void> {
 		const dir = fixtureDir();
 		const res = await call(dir, "diary_digest", {});
 		const text = res.content[0].text;
-		check("digest names latest unreviewed target", text.includes("Next target (latest unreviewed): 2026-02-02"));
+		check("digest names the only unreviewed entry", text.includes("Only unreviewed entry: 2026-02-02"));
 		check(
 			"digest shows register mixing recurring 4",
 			text.includes("Register mixing (ですます vs plain form) — recurring · 4 total"),
@@ -333,6 +333,65 @@ async function main(): Promise<void> {
 			JSON.stringify(dates),
 		);
 		check("backfill feedback appended to its entry", read(dir, "2026-01-15.md").includes("## Feedback (2026-01-15)"));
+	}
+
+	// 11. batch: several unreviewed → digest hints; commits accumulate earliest → latest
+	{
+		const dir = fixtureDir();
+		fs.writeFileSync(
+			path.join(dir, "2026-01-28.md"),
+			"今日は雨でした。家で単純の問題を解きました。難しかったです。夜は早く寝ました。\n",
+		);
+		const d1 = await call(dir, "diary_digest", {});
+		check(
+			"digest reports multiple unreviewed and the ask",
+			d1.content[0].text.includes("Multiple unreviewed entries (2026-01-28, 2026-02-02)") &&
+				d1.content[0].text.includes("review all (earliest → latest) or a specific one"),
+		);
+		const c1 = await call(dir, "diary_commit", {
+			entry: "2026-01-28",
+			tiers: [
+				{
+				severity: "grammar",
+				items: [
+					{
+						wrong: "単純の問題",
+						right: "単純な問題",
+						note: "な-adjectives attach な.",
+						pattern: "な-adjective + noun attachment",
+					},
+				],
+				},
+			],
+			upgrades: [],
+			corrected: "今日は雨でした。家で単純な問題を解きました。難しかったです。夜は早く寝ました。",
+			scores: { correctness: 63, naturalness: 63, flow: 67, overall: 64 },
+			nextFocus: "な-adjective attachment (3rd)",
+		});
+		check("batch: first (earliest) commit succeeds", !c1.isError, c1.content[0].text);
+		check(
+			"batch: first commit counts 3rd occurrence",
+			read(dir, "2026-01-28.md").includes("(3rd time · recurring — [[mistake-log#な-adjective + noun attachment]])"),
+		);
+		const c2 = await call(dir, "diary_commit", COMMIT_0202);
+		check("batch: second (latest) commit succeeds", !c2.isError, c2.content[0].text);
+		const dates = [...[...read(dir, "progress.md").matchAll(/^\| (\d{4}-\d{2}-\d{2}) \|/gm)].map((m) => m[1])];
+		check(
+			"batch: progress rows stay date-sorted",
+			JSON.stringify(dates) ===
+				JSON.stringify(["2026-01-05", "2026-01-12", "2026-01-20", "2026-01-25", "2026-01-28", "2026-02-02"]),
+			JSON.stringify(dates),
+		);
+		check(
+			"batch: pattern accumulated across commits",
+			read(dir, "mistake-log.md").includes(
+				"Count: 4 · First: [[2026-01-12]] · Last: [[2026-02-02]] · Status: recurring",
+			),
+		);
+		check(
+			"batch: later entry's repeat annotation reflects accumulation",
+			read(dir, "2026-02-02.md").includes("(4th time · recurring — [[mistake-log#な-adjective + noun attachment]])"),
+		);
 	}
 
 	// 10. malformed tracker line → loud error, nothing written

@@ -420,8 +420,12 @@ function buildDigest(cwd: string): string {
 	L.push(
 		`Entries: ${entries.length} total · reviewed: ${reviewedEntries.length ? reviewedEntries.join(", ") : "none"} · unreviewed: ${unreviewed.length ? unreviewed.map((e) => e.date).join(", ") : "none"}`,
 	);
-	if (unreviewed.length > 0) {
-		L.push(`Next target (latest unreviewed): ${unreviewed[unreviewed.length - 1].date}`);
+	if (unreviewed.length === 1) {
+		L.push(`Only unreviewed entry: ${unreviewed[0].date}`);
+	} else if (unreviewed.length > 1) {
+		L.push(
+			`Multiple unreviewed entries (${unreviewed.map((e) => e.date).join(", ")}) — if the user hasn't already chosen, ask whether to review all (earliest → latest) or a specific one.`,
+		);
 	} else {
 		L.push("All entries reviewed — nothing to do (a re-review needs an explicit request).");
 	}

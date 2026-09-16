@@ -10,12 +10,18 @@ Reviews the learner's free-form Japanese writing. You provide the judgment — t
 ## Workflow
 
 1. Call `diary_digest`: entries + review state, active mistake patterns (with counts), recent scores, expression bank, and the learner profile. This is all the history you need — never re-read the tracker files yourself.
-2. Pick the target: an entry the user named, else the latest unreviewed (digest says which). If none, stop and say so. `read` the entry fully.
-3. Analyze every sentence; triage (below); pick 2–3 upgrades; decide scores against the calibration.
-4. Call `diary_commit` with the structured review. It renders the feedback, appends it to the entry, updates all trackers, and reports status changes.
-5. Reply in 2–3 sentences: overall verdict, the score, the single most valuable focus. Point to the entry file — never paste the full feedback into chat.
+2. Pick the target:
+   - An entry the user named → that one.
+   - Exactly one unreviewed → it.
+   - Several unreviewed and the user hasn't already chosen → ask with `ask_user_question`: "Found N unreviewed entries (list the dates). Review them all, or a specific one?" Options: all in order (earliest → latest) · latest only · a specific date.
+   - None → stop and say so.
+3. `read` the target entry fully. In a batch, process entries one at a time, strictly earliest → latest.
+4. Analyze every sentence; triage (below); pick 2–3 upgrades; decide scores against the calibration. Call `diary_commit` for the entry, then move to the next.
+5. Reply in 2–3 sentences per review: overall verdict, the score, the single most valuable focus — point to the entry file, never paste the full feedback into chat. For a batch: one line per entry as you go, then a single wrap-up (score trajectory, patterns that escalated across the batch, the next focus).
 
-**First run in a folder without trackers:** interview the learner with `ask_user_question` (level/background, registers they write in, current goals, explanation language), then call `diary_init`.
+**Batch rule:** never re-read trackers or re-digest between entries — each commit's summary carries the state forward (new counts, status flips). The date-sorted tracker math is correct in any order; earliest → latest keeps the narrative and the "Nth time" annotations chronological.
+
+**First run in a folder without trackers:** interview the learner with `ask_user_question` (level/background, registers they write in, current goals, explanation language), then call `diary_init`. Afterwards continue with normal target selection — a clean folder of dated entries flows straight into the batch question above.
 
 ## Commit contract
 

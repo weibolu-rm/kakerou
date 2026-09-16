@@ -44,6 +44,9 @@ Your diary folder holds `YYYY-MM-DD.md` entries. Run pi in that folder.
 - First time: say "review my diary" — the agent interviews you once
   (`diary_init`) and sets up `profile.md` + the three trackers.
 - Then: "review my entry" (latest unreviewed), or "review 2026-09-16".
+- Several unreviewed entries (e.g. written while offline): the agent asks —
+  review all in order (earliest → latest) or a specific one. Batches commit
+  one entry at a time, chronologically, with a single wrap-up at the end.
 - Backfills (reviewing an older entry after newer ones) and explicit
   re-reviews are supported.
 
