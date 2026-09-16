@@ -19,9 +19,8 @@
  *   diary_init   — scaffold profile.md + the three trackers for a new diary
  *                  folder (the skill interviews the learner first).
  *
- * Output is Obsidian-flavored markdown (wikilinks, callouts). Tracker files
- * written by older emoji-based versions are parsed and normalized on write;
- * past review sections and history rows are never rewritten.
+ * Output is Obsidian-flavored markdown (wikilinks, callouts). Past review
+ * sections and history rows are never rewritten.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -127,7 +126,7 @@ function scanEntries(cwd: string): EntryInfo[] {
 			return {
 				date: n.slice(0, 10),
 				file: n,
-				reviewed: /^## (Feedback|添削フィードバック)/m.test(content),
+				reviewed: /^## Feedback/m.test(content),
 			};
 		});
 }
@@ -157,38 +156,14 @@ interface MistakeLogData {
 	patterns: PatternSec[];
 	categories: string[];
 	categoryInsert: Map<string, number>;
-	legendIdx: number | null;
 }
 
-function parseStatusRaw(raw: string, heading: string): { status: Status; note: string | null } {
-	const trimmed = raw.trim();
-	const m = /^([^\s(]+)\s*(.*)$/.exec(trimmed);
-	if (!m || !m[1]) {
-		throw new Error(`${MISTAKE_LOG} "### ${heading}": could not read status from "${raw}"`);
-	}
-	const token = m[1];
-	const rest = m[2].trim();
-	let status: Status;
-	if (token === "🌱" || token === "once" || token === "seen" || token === "seen-once") {
-		status = "seen once";
-	} else if (token === "🔥" || token === "recurring") {
-		status = "recurring";
-	} else if (token === "✅" || token === "fixed") {
-		status = "fixed";
-	} else {
-		throw new Error(
-			`${MISTAKE_LOG} "### ${heading}": unrecognized status token "${token}" (expected seen once / recurring / fixed, or legacy 🌱/🔥/✅)`,
-		);
-	}
-	let note: string | null = null;
-	if (rest.startsWith("(") && rest.endsWith(")")) {
-		let inner = rest.slice(1, -1).trim();
-		// Strip stale manual arithmetic like "— 2 more clean entries → ✅";
-		// the tool computes that itself now.
-		inner = inner.replace(/\s*—\s*\d+\s*more clean entries.*$/, "").trim();
-		if (/used correctly/i.test(inner)) note = inner;
-	}
-	return { status, note };
+function parseStatusToken(raw: string, heading: string): Status {
+	const t = raw.trim();
+	if (t === "seen once" || t === "recurring" || t === "fixed") return t;
+	throw new Error(
+		`${MISTAKE_LOG} "### ${heading}": unrecognized status "${t}" (expected: seen once / recurring / fixed)`,
+	);
 }
 
 function parseMistakeLog(cwd: string): MistakeLogData {
@@ -199,7 +174,6 @@ function parseMistakeLog(cwd: string): MistakeLogData {
 	const catLastPatternEnd = new Map<string, number>();
 	let curCat: string | null = null;
 	let cur: PatternSec | null = null;
-	let legendIdx: number | null = null;
 
 	const closePattern = (endIdx: number) => {
 		if (cur) {
@@ -237,9 +211,6 @@ function parseMistakeLog(cwd: string): MistakeLogData {
 			}
 			continue;
 		}
-		if (/^\*\*Status( legend)?:\*\*/.test(line)) {
-			legendIdx = i;
-		}
 		if (cur) {
 			const m = META_RE.exec(line);
 			if (m) {
@@ -247,9 +218,9 @@ function parseMistakeLog(cwd: string): MistakeLogData {
 				cur.count = parseInt(m[1], 10);
 				cur.first = m[2];
 				cur.last = m[3];
-				const parsed = parseStatusRaw(m[4], cur.heading);
-				cur.status = parsed.status;
-				cur.note = parsed.note;
+				cur.status = parseStatusToken(m[4], cur.heading);
+			} else if (/^- Used correctly in /.test(line)) {
+				cur.note = line.replace(/^- /, "").trim();
 			}
 		}
 	}
@@ -268,7 +239,7 @@ function parseMistakeLog(cwd: string): MistakeLogData {
 		categoryInsert.set(c, catLastPatternEnd.get(c) ?? catHeadingIdx.get(c)! + 1);
 	}
 
-	return { lines, patterns, categories, categoryInsert, legendIdx };
+	return { lines, patterns, categories, categoryInsert };
 }
 
 // ---------------------------------------------------------------------------
@@ -670,7 +641,7 @@ function commitReview(cwd: string, input: CommitInput): { text: string; details:
 		throw new Error(`No entry file "${input.entry}.md" in ${cwd}`);
 	}
 	const entryContent = fs.readFileSync(entryPath, "utf-8");
-	const alreadyReviewed = /^## (Feedback|添削フィードバック)/m.test(entryContent);
+	const alreadyReviewed = /^## Feedback/m.test(entryContent);
 	if (alreadyReviewed && !input.reReview) {
 		throw new Error(
 			`${input.entry}.md already has a feedback section. Pass reReview: true to append another review (never done unless the user explicitly asks).`,
@@ -793,12 +764,6 @@ function commitReview(cwd: string, input: CommitInput): { text: string; details:
 		const after = stateAfter.get(p.heading)!;
 		const status = patternInfo.get(p.heading)!.status;
 		metaByIdx.set(p.metaIdx, `- Count: ${after.count} · First: [[${after.first}]] · Last: [[${after.last}]] · Status: ${status}`);
-		// Preserve an existing clean-recovery note as a proper body line.
-		if (p.note) {
-			const noteLine = `- ${p.note}`;
-			const body = logLines.slice(p.startIdx + 1, p.endIdx).join("\n");
-			if (!body.includes(p.note)) logSplices.push({ idx: p.metaIdx, block: [noteLine], kind: "inline" });
-		}
 	}
 	for (const cr of input.cleanRecoveries ?? []) {
 		const p = stateBefore.get(cr.pattern);
@@ -837,10 +802,6 @@ function commitReview(cwd: string, input: CommitInput): { text: string; details:
 	// original layout, applied bottom-up).
 	for (const [idx, line] of metaByIdx) logLines[idx] = line;
 	applySplices(logLines, logSplices);
-	if (log.legendIdx !== null) {
-		logLines[log.legendIdx] =
-			"**Status:** seen once → recurring (2+ entries) → fixed (absent from 3 consecutive reviewed entries)";
-	}
 
 	// --- progress rewrite ----------------------------------------------------
 	const progLines = [...prog.lines];

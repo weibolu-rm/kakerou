@@ -21,7 +21,7 @@ maintenance.
 Output is emoji-free Obsidian-flavored markdown: callouts + `✗ → ✓` markers,
 `[[wikilinks]]` between entries and trackers. Pattern statuses
 (`seen once` → `recurring` → `fixed`) are computed from review history, never
-guessed — and old emoji-era tracker files are parsed and normalized on write.
+guessed.
 
 ## Requirements
 
@@ -31,7 +31,7 @@ guessed — and old emoji-era tracker files are parsed and normalized on write.
 
 ## Install
 
-    pi install git:github.com/<you>/japanese-diary-review
+    pi install git:github.com/weibolu-rm/japanese-diary-review
 
 Try it without installing:
 

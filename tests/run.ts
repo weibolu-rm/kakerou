@@ -188,7 +188,7 @@ async function main(): Promise<void> {
 			!text.includes("ながら takes the ます-stem —") && text.includes("1 fixed (hidden)"),
 		);
 		check("digest shows 興味 seen once with note", text.includes("Collocation: 興味 — seen once · 1 total"));
-		check("digest shows clean recovery note", text.includes("used correctly in [[2026-01-20]]"));
+		check("digest shows clean recovery note", text.includes("Used correctly in [[2026-01-20]]"));
 		check("digest shows recent scores", text.includes("overall **66**"));
 		check("digest shows expressions", text.includes("のめり込む [Interest & absorption]"));
 		check("digest shows profile", text.includes("polite 私/ですます form"));
@@ -238,14 +238,8 @@ async function main(): Promise<void> {
 			log.includes("Count: 1 · First: [[2026-01-12]] · Last: [[2026-01-12]] · Status: fixed"),
 		);
 		check(
-			"clean recovery note moved into body",
-			log.includes("Used correctly in [[2026-02-02]]: 探しながら used correctly") ||
-				log.includes("used correctly in [[2026-01-20]]: 興味が湧いた"),
-		);
-		check("status legend normalized", log.includes("**Status:** seen once → recurring (2+ entries)"));
-		check(
-			"meta lines have no emoji statuses",
-			!log.split("\n").some((l) => /^- Count:.*Status:.*(🌱|🔥|✅)/.test(l)),
+			"clean recovery line added to pattern body",
+			log.includes("- Used correctly in [[2026-02-02]]: 探しながら used correctly"),
 		);
 		const prog = read(dir, "progress.md");
 		const dates = [...prog.matchAll(/^\| (\d{4}-\d{2}-\d{2}) \|/gm)].map((m) => m[1]);
@@ -346,7 +340,7 @@ async function main(): Promise<void> {
 		const dir = fixtureDir();
 		const logPath = path.join(dir, "mistake-log.md");
 		const log = read(dir, "mistake-log.md").replace(
-			"- Count: 4 · First: [[2026-01-05]] · Last: [[2026-01-25]] · Status: 🔥",
+			"- Count: 4 · First: [[2026-01-05]] · Last: [[2026-01-25]] · Status: recurring",
 			"- Count: lots",
 		);
 		fs.writeFileSync(logPath, log);
