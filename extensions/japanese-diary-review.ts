@@ -16,11 +16,18 @@
  *                  expression-bank, and recomputes pattern statuses exactly
  *                  (seen once → recurring → fixed after 3 consecutive clean
  *                  reviewed entries, by entry date — backfill-safe).
+ *   diary_amend   — correct a committed review (misread mistake, different
+ *                  corrected text, adjusted scores): verifies the stated
+ *                  `previous` payload against the entry's newest feedback
+ *                  block, replaces it, and recomputes every tracker delta
+ *                  deterministically (counts shrink, patterns can disappear,
+ *                  bank entries are removed, the progress row is rescored).
  *   diary_init   — scaffold profile.md + the three trackers for a new diary
  *                  folder (the skill interviews the learner first).
  *
- * Output is Obsidian-flavored markdown (wikilinks, callouts). Past review
- * sections and history rows are never rewritten.
+ * Output is Obsidian-flavored markdown (wikilinks, callouts). The original
+ * composition is never touched; committed feedback is only ever replaced
+ * through diary_amend's verified path.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -362,7 +369,9 @@ interface SpliceOp {
 	idx: number;
 	block: string[];
 	/** "section" gets blank-line hygiene; "inline" is spliced verbatim */
-	kind: "section" | "inline";
+	kind: "section" | "inline" | "delete";
+	/** for kind "delete": how many lines to remove */
+	count?: number;
 }
 
 function applySplices(lines: string[], ops: SpliceOp[]): void {
@@ -370,7 +379,8 @@ function applySplices(lines: string[], ops: SpliceOp[]): void {
 		.slice()
 		.sort((a, b) => b.idx - a.idx)
 		.forEach((op) => {
-			if (op.kind === "section") spliceSection(lines, op.idx, op.block);
+			if (op.kind === "delete") lines.splice(op.idx, op.count ?? 0);
+			else if (op.kind === "section") spliceSection(lines, op.idx, op.block);
 			else lines.splice(op.idx, 0, ...op.block);
 		});
 }
@@ -631,6 +641,79 @@ function renderFeedback(
 }
 
 // ---------------------------------------------------------------------------
+// Shared payload validation + occurrence counting (commit and amend)
+// ---------------------------------------------------------------------------
+
+type Payload = Omit<CommitInput, "entry" | "reReview">;
+
+function validatePayload(payload: Payload, log: MistakeLogData): void {
+	for (const field of ["correctness", "naturalness", "flow", "overall"] as const) {
+		const v = payload.scores[field];
+		if (typeof v !== "number" || v < 0 || v > 100) {
+			throw new Error(`scores.${field} must be a number 0–100, got ${v}`);
+		}
+	}
+	const known = new Set(log.patterns.map((p) => p.heading));
+	const declared = new Set((payload.patterns ?? []).map((p) => p.heading));
+	for (const t of payload.tiers ?? []) {
+		if (t.severity === "style") continue;
+		for (const item of t.items ?? []) {
+			if (item.pattern && !known.has(item.pattern) && !declared.has(item.pattern)) {
+				throw new Error(
+					`Unknown pattern "${item.pattern}". Either reference a known heading exactly, or declare it in patterns[] (with category + example) so it gets logged.\nKnown headings: ${[...known].join(" | ")}`,
+				);
+			}
+		}
+	}
+	for (const p of payload.patterns ?? []) {
+		if (known.has(p.heading)) continue;
+		if (!p.example) {
+			throw new Error(
+				`New pattern "${p.heading}" needs a one-line example (✗ → ✓ form) so the log stays self-explanatory.`,
+			);
+		}
+		const cat = p.category ?? DEFAULT_CATEGORY;
+		if (!log.categories.includes(cat)) {
+			throw new Error(
+				`Pattern "${p.heading}" category "${cat}" is not a ## heading in ${MISTAKE_LOG}. Valid: ${log.categories.join(" | ")}`,
+			);
+		}
+	}
+	for (const cr of payload.cleanRecoveries ?? []) {
+		if (!known.has(cr.pattern) && !declared.has(cr.pattern)) {
+			throw new Error(
+				`cleanRecoveries references unknown pattern "${cr.pattern}". Known headings: ${[...known].join(" | ")}`,
+			);
+		}
+	}
+}
+
+function payloadOccurrences(payload: Payload, log: MistakeLogData, entry: string): Map<string, number> {
+	const logByHeading = new Map(log.patterns.map((p) => [p.heading, p]));
+	const occurrences = new Map<string, number>();
+	for (const t of payload.tiers ?? []) {
+		if (t.severity === "style") continue;
+		for (const item of t.items ?? []) {
+			if (!item.pattern) continue;
+			occurrences.set(item.pattern, (occurrences.get(item.pattern) ?? 0) + 1);
+		}
+	}
+	for (const p of payload.patterns ?? []) {
+		const extra = p.extraOccurrences ?? 0;
+		if (extra > 0) occurrences.set(p.heading, (occurrences.get(p.heading) ?? 0) + extra);
+	}
+	// A declared pattern with no counted occurrences still happened once — but
+	// only when the review created it (absent from the log, or present only
+	// because the review being counted/undone added it: First == entry).
+	for (const p of payload.patterns ?? []) {
+		if (occurrences.has(p.heading)) continue;
+		const inLog = logByHeading.get(p.heading);
+		if (!inLog || inLog.first === entry) occurrences.set(p.heading, 1);
+	}
+	return occurrences;
+}
+
+// ---------------------------------------------------------------------------
 // diary_commit — main
 // ---------------------------------------------------------------------------
 
@@ -651,12 +734,6 @@ function commitReview(cwd: string, input: CommitInput): { text: string; details:
 			`${input.entry}.md already has a feedback section. Pass reReview: true to append another review (never done unless the user explicitly asks).`,
 		);
 	}
-	for (const field of ["correctness", "naturalness", "flow", "overall"] as const) {
-		const v = input.scores[field];
-		if (typeof v !== "number" || v < 0 || v > 100) {
-			throw new Error(`scores.${field} must be a number 0–100, got ${v}`);
-		}
-	}
 
 	// --- Parse trackers -----------------------------------------------------
 	const log = parseMistakeLog(cwd);
@@ -669,62 +746,13 @@ function commitReview(cwd: string, input: CommitInput): { text: string; details:
 		);
 	}
 
-	// --- Validate pattern references ----------------------------------------
+	// --- Validate + count occurrences ----------------------------------------
+	validatePayload(input, log);
+	const occurrences = payloadOccurrences(input, log, input.entry);
 	const known = new Set(log.patterns.map((p) => p.heading));
 	const declared = new Map<string, CommitPattern>();
 	for (const p of input.patterns ?? []) {
 		if (!declared.has(p.heading)) declared.set(p.heading, p);
-	}
-	const allItems: CommitItem[] = [];
-	for (const t of input.tiers ?? []) {
-		if (t.severity === "style") continue;
-		for (const item of t.items ?? []) {
-			allItems.push(item);
-			if (item.pattern && !known.has(item.pattern) && !declared.has(item.pattern)) {
-				throw new Error(
-					`Unknown pattern "${item.pattern}". Either reference a known heading exactly, or declare it in patterns[] (with category + example) so it gets logged.\nKnown headings: ${[...known].join(" | ")}`,
-				);
-			}
-		}
-	}
-	for (const [heading, p] of declared) {
-		if (!known.has(heading)) {
-			if (!p.example) {
-				throw new Error(
-					`New pattern "${heading}" needs a one-line example (✗ → ✓ form) so the log stays self-explanatory.`,
-				);
-			}
-			const cat = p.category ?? DEFAULT_CATEGORY;
-			if (!log.categories.includes(cat)) {
-				throw new Error(
-					`Pattern "${heading}" category "${cat}" is not a ## heading in ${MISTAKE_LOG}. Valid: ${log.categories.join(" | ")}`,
-				);
-			}
-		}
-	}
-	for (const cr of input.cleanRecoveries ?? []) {
-		if (!known.has(cr.pattern) && !declared.has(cr.pattern)) {
-			throw new Error(
-				`cleanRecoveries references unknown pattern "${cr.pattern}". Known headings: ${[...known].join(" | ")}`,
-			);
-		}
-	}
-
-	// --- Count occurrences ---------------------------------------------------
-	// Tier items with `pattern` count as one occurrence each; patterns[].extraOccurrences
-	// adds more (for repeats inside one entry that are not separate items).
-	const occurrences = new Map<string, number>();
-	for (const item of allItems) {
-		if (!item.pattern) continue;
-		occurrences.set(item.pattern, (occurrences.get(item.pattern) ?? 0) + 1);
-	}
-	for (const [heading, p] of declared) {
-		const extra = p.extraOccurrences ?? 0;
-		if (extra > 0) occurrences.set(heading, (occurrences.get(heading) ?? 0) + extra);
-	}
-	// A declared new pattern with no occurrences anywhere still happened once.
-	for (const [heading, p] of declared) {
-		if (!known.has(heading) && !occurrences.has(heading)) occurrences.set(heading, 1);
 	}
 
 	// --- Compute new pattern state -------------------------------------------
@@ -898,6 +926,321 @@ function commitReview(cwd: string, input: CommitInput): { text: string; details:
 }
 
 // ---------------------------------------------------------------------------
+// diary_amend — correct a committed review
+// ---------------------------------------------------------------------------
+
+interface AmendInput {
+	entry: string;
+	previous: Payload;
+	amended: Payload;
+}
+
+function sectionDeleteOp(lines: string[], startIdx: number, endIdx: number): SpliceOp {
+	// Also eat one trailing blank so sections don't collapse into a double gap.
+	const count = endIdx - startIdx + (lines[endIdx] === "" ? 1 : 0);
+	return { idx: startIdx, block: [], kind: "delete", count };
+}
+
+function amendReview(cwd: string, input: AmendInput): { text: string; details: unknown } {
+	requireTrackers(cwd);
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(input.entry)) {
+		throw new Error(`entry must be a YYYY-MM-DD date string, got "${input.entry}"`);
+	}
+	const entryPath = path.join(cwd, `${input.entry}.md`);
+	if (!fs.existsSync(entryPath)) {
+		throw new Error(`No entry file "${input.entry}.md" in ${cwd}`);
+	}
+	const content = fs.readFileSync(entryPath, "utf-8");
+	const at = content.lastIndexOf("\n---\n\n## Feedback");
+	if (at < 0) {
+		throw new Error(`${input.entry}.md has no feedback section — nothing to amend (commit a review first).`);
+	}
+	const block = content.slice(at);
+	const prefix = content.slice(0, at); // original composition + any older blocks
+
+	// --- Verify `previous` against what is actually in the file ----------------
+	const missing: string[] = [];
+	const blockLines = new Set(block.split("\n"));
+	for (const t of input.previous.tiers ?? []) {
+		if (t.severity === "style") continue;
+		for (const item of t.items ?? []) {
+			if (!block.includes(`${WRONG} ${item.wrong} → ${RIGHT} ${item.right}`)) {
+				missing.push(`item "${item.wrong}"`);
+			}
+		}
+	}
+	for (const u of input.previous.upgrades ?? []) {
+		if (!block.includes(u.expression)) missing.push(`upgrade "${u.expression}"`);
+	}
+	for (const line of input.previous.corrected.split("\n")) {
+		if (line.trim() && !blockLines.has(`> ${line}`)) {
+			missing.push("corrected text");
+			break;
+		}
+	}
+	const ps = input.previous.scores;
+	if (!block.includes(`| Correctness | ${ps.correctness}/100 |`)) missing.push("correctness score");
+	if (!block.includes(`| Naturalness | ${ps.naturalness}/100 |`)) missing.push("naturalness score");
+	if (!block.includes(`| Flow | ${ps.flow}/100 |`)) missing.push("flow score");
+	if (!block.includes(`| **Overall** | **${ps.overall}/100** |`)) missing.push("overall score");
+	if (missing.length > 0) {
+		throw new Error(
+			`previous does not match the feedback recorded in ${input.entry}.md — missing: ${missing.join("; ")}. Re-read the entry's feedback section and pass the payload exactly as committed. Nothing was written.`,
+		);
+	}
+
+	// --- Parse trackers + validate the amended payload -------------------------
+	const log = parseMistakeLog(cwd);
+	const prog = parseProgress(cwd);
+	const bank = parseBank(cwd);
+	validatePayload(input.amended, log);
+	const prevOcc = payloadOccurrences(input.previous, log, input.entry);
+	const newOcc = payloadOccurrences(input.amended, log, input.entry);
+	const row = prog.rows.find((r) => r.date === input.entry);
+	if (!row) {
+		throw new Error(`progress.md has no row for ${input.entry} — nothing to amend.`);
+	}
+	const reviewed = prog.rows.map((r) => r.date);
+
+	// --- Undo previous, apply amended (all in memory) ---------------------------
+	const deleted = new Set<string>();
+	const state = new Map<string, { count: number; first: string; last: string }>();
+	for (const p of log.patterns) state.set(p.heading, { count: p.count, first: p.first, last: p.last });
+	for (const [h, occ] of prevOcc) {
+		const cur = state.get(h);
+		if (!cur) {
+			throw new Error(
+				`${MISTAKE_LOG} has no pattern "${h}" referenced by previous — tracker state does not match the committed review; refusing.`,
+			);
+		}
+		if (cur.count - occ < 0) {
+			throw new Error(
+				`Pattern "${h}" count ${cur.count} cannot absorb removing ${occ} occurrence(s) — tracker state does not match the committed review; refusing.`,
+			);
+		}
+		if (cur.count - occ === 0) {
+			if (cur.first !== input.entry) {
+				throw new Error(
+					`Pattern "${h}" predates ${input.entry} — its earlier history cannot be removed by amending this review; refusing.`,
+				);
+			}
+			deleted.add(h);
+		} else {
+			cur.count -= occ;
+			// `last` stays put: an exact regression is unknowable from aggregates;
+			// leaving it can only delay a future "fixed", never fake one.
+		}
+	}
+	const resurrected: string[] = [];
+	for (const [h, occ] of newOcc) {
+		if (deleted.has(h)) {
+			deleted.delete(h);
+			resurrected.push(h);
+		}
+		const cur = state.get(h);
+		if (cur) {
+			cur.count += occ;
+			if (input.entry > cur.last) cur.last = input.entry;
+		} else {
+			state.set(h, { count: occ, first: input.entry, last: input.entry });
+		}
+	}
+
+	const statusBefore = new Map(log.patterns.map((p) => [p.heading, computeStatus(p.count, p.last, reviewed)]));
+	const patternInfo = new Map<string, { total: number; status: Status; existed: boolean }>();
+	const statusChanges: string[] = [];
+	const lastKept: string[] = [];
+	for (const p of log.patterns) {
+		if (deleted.has(p.heading)) continue;
+		const after = state.get(p.heading)!;
+		const status = computeStatus(after.count, after.last, reviewed);
+		patternInfo.set(p.heading, { total: after.count, status, existed: p.first !== input.entry });
+		const before = statusBefore.get(p.heading);
+		if (before && before !== status) statusChanges.push(`${p.heading}: ${before} → ${status}`);
+		if (prevOcc.get(p.heading) && !newOcc.get(p.heading) && p.last === input.entry) lastKept.push(p.heading);
+	}
+	for (const h of resurrected) {
+		const after = state.get(h)!;
+		patternInfo.set(h, { total: after.count, status: computeStatus(after.count, after.last, reviewed), existed: false });
+	}
+	// Brand-new patterns (not in the log at all):
+	for (const h of newOcc.keys()) {
+		if (log.patterns.some((p) => p.heading === h)) continue;
+		const after = state.get(h)!;
+		patternInfo.set(h, { total: after.count, status: computeStatus(after.count, after.last, reviewed), existed: false });
+	}
+
+	// --- Render amended feedback (validation complete; writes only from here) --
+	const rendered = renderFeedback({ ...input.amended, entry: input.entry }, patternInfo);
+
+	// --- mistake-log ops ---------------------------------------------------------
+	const logLines = [...log.lines];
+	const ops: SpliceOp[] = [];
+	const metaByIdx = new Map<number, string>();
+	for (const p of log.patterns) {
+		if (deleted.has(p.heading)) {
+			ops.push(sectionDeleteOp(log.lines, p.startIdx, p.endIdx));
+			continue;
+		}
+		const after = state.get(p.heading)!;
+		const info = patternInfo.get(p.heading)!;
+		metaByIdx.set(p.metaIdx, `- Count: ${after.count} · First: [[${after.first}]] · Last: [[${after.last}]] · Status: ${info.status}`);
+	}
+	const declaredNew = new Map((input.amended.patterns ?? []).map((p) => [p.heading, p]));
+	for (const h of newOcc.keys()) {
+		if (log.patterns.some((p) => p.heading === h) || deleted.has(h)) continue;
+		const p = declaredNew.get(h)!; // validatePayload enforced category + example
+		const after = state.get(h)!;
+		const info = patternInfo.get(h)!;
+		const cat = p.category ?? DEFAULT_CATEGORY;
+		const blockLines2 = [
+			`### ${h}`,
+			`- ${p.example}`,
+			`- Count: ${after.count} · First: [[${after.first}]] · Last: [[${after.last}]] · Status: ${info.status}`,
+		];
+		const insertAt = log.categoryInsert.get(cat);
+		if (insertAt !== undefined) {
+			ops.push({ idx: insertAt, block: blockLines2, kind: "section" });
+		} else {
+			ops.push({ idx: contentEnd(logLines), block: [`## ${cat}`, "", ...blockLines2], kind: "section" });
+		}
+	}
+	// clean recoveries: remove dropped, add new
+	const prevCR = new Set((input.previous.cleanRecoveries ?? []).map((c) => c.pattern));
+	const newCR = new Set((input.amended.cleanRecoveries ?? []).map((c) => c.pattern));
+	for (const h of prevCR) {
+		if (newCR.has(h) || deleted.has(h)) continue;
+		const target = log.patterns.find((p) => p.heading === h);
+		if (!target) continue;
+		for (let i = target.startIdx + 1; i < target.endIdx; i++) {
+			if (/^- Used correctly in \[\[/.test(log.lines[i]) && log.lines[i].includes(`[[${input.entry}]]`)) {
+				ops.push({ idx: i, block: [], kind: "delete", count: 1 });
+			}
+		}
+	}
+	for (const cr of input.amended.cleanRecoveries ?? []) {
+		if (prevCR.has(cr.pattern) || deleted.has(cr.pattern)) continue;
+		const target = log.patterns.find((p) => p.heading === cr.pattern);
+		if (!target) continue;
+		const body = log.lines.slice(target.startIdx + 1, target.endIdx).join("\n");
+		if (!body.includes(`Used correctly in [[${input.entry}]]`)) {
+			ops.push({ idx: target.metaIdx, block: [`- Used correctly in [[${input.entry}]]: ${cr.note}`], kind: "inline" });
+		}
+	}
+	for (const [idx, line] of metaByIdx) logLines[idx] = line;
+	applySplices(logLines, ops);
+
+	// --- progress: replace the row ----------------------------------------------
+	const progLines = [...prog.lines];
+	const s = input.amended.scores;
+	progLines[row.idx] = `| ${input.entry} | [[${input.entry}]] | ${s.correctness} | ${s.naturalness} | ${s.flow} | **${s.overall}** | ${sanitizeCell(input.amended.nextFocus)} |`;
+
+	// --- expression-bank ops ------------------------------------------------------
+	const bankLines = [...bank.lines];
+	const bankOps: SpliceOp[] = [];
+	const prevExprs = new Set((input.previous.upgrades ?? []).map((u) => u.expression));
+	const newExprs = new Set((input.amended.upgrades ?? []).map((u) => u.expression));
+	const removedExprs: string[] = [];
+	const keptExprs: string[] = [];
+	for (const sec of bank.sections) {
+		if (!prevExprs.has(sec.heading) || newExprs.has(sec.heading)) continue;
+		const body = bank.lines.slice(sec.startIdx + 1, sec.endIdx).join("\n");
+		if (body.includes(`First seen: [[${input.entry}]]`)) {
+			bankOps.push(sectionDeleteOp(bank.lines, sec.startIdx, sec.endIdx));
+			removedExprs.push(sec.heading);
+		} else {
+			keptExprs.push(sec.heading); // pre-existing before this review
+		}
+	}
+	const existingHeadings = new Set(bank.sections.map((x) => x.heading));
+	const addedExprs: string[] = [];
+	const skippedExprs: string[] = [];
+	for (const u of input.amended.upgrades ?? []) {
+		if (prevExprs.has(u.expression)) continue;
+		if (existingHeadings.has(u.expression)) {
+			skippedExprs.push(u.expression);
+			continue;
+		}
+		existingHeadings.add(u.expression);
+		const block3 = [`### ${u.expression}`, ...u.note.split("\n").filter((l) => l.trim()), `First seen: [[${input.entry}]]`];
+		const cat = u.category;
+		const insertAt = cat ? bank.categoryInsert.get(cat) : null;
+		if (cat && insertAt !== null && insertAt !== undefined) {
+			bankOps.push({ idx: insertAt, block: block3, kind: "section" });
+		} else if (cat) {
+			bankOps.push({ idx: contentEnd(bankLines), block: [`## ${cat}`, "", ...block3], kind: "section" });
+		} else {
+			bankOps.push({ idx: contentEnd(bankLines), block: block3, kind: "section" });
+		}
+		addedExprs.push(u.expression);
+	}
+	applySplices(bankLines, bankOps);
+
+	// --- Write everything -----------------------------------------------------------
+	fs.writeFileSync(entryPath, prefix + "\n---\n\n" + rendered + "\n", "utf-8");
+	fs.writeFileSync(path.join(cwd, MISTAKE_LOG), joinLines(logLines), "utf-8");
+	fs.writeFileSync(path.join(cwd, PROGRESS_FILE), joinLines(progLines), "utf-8");
+	fs.writeFileSync(path.join(cwd, EXPRESSION_BANK), joinLines(bankLines), "utf-8");
+
+	// --- Summary ----------------------------------------------------------------------
+	const keyOf = (i: CommitItem) => `${i.wrong} → ${i.right}`;
+	const prevItems = (input.previous.tiers ?? []).filter((t) => t.severity !== "style").flatMap((t) => t.items ?? []);
+	const amendedItems = (input.amended.tiers ?? []).filter((t) => t.severity !== "style").flatMap((t) => t.items ?? []);
+	const amendedKeys = new Set(amendedItems.map(keyOf));
+	const prevKeys = new Set(prevItems.map(keyOf));
+	const removedItems = prevItems.filter((i) => !amendedKeys.has(keyOf(i)));
+	const addedItems = amendedItems.filter((i) => !prevKeys.has(keyOf(i)));
+
+	const S = [`Amended review for ${input.entry} — feedback section replaced, trackers recomputed. ${EMOJI_FREE_NOTE}`];
+	if (removedItems.length > 0) S.push(`- Items removed: ${removedItems.map((i) => `✗ ${i.wrong}`).join(" · ")}`);
+	if (addedItems.length > 0) S.push(`- Items added: ${addedItems.map((i) => `✗ ${i.wrong}`).join(" · ")}`);
+	const logByHeading = new Map(log.patterns.map((p) => [p.heading, p]));
+	const patternNotes: string[] = [];
+	for (const h of new Set([...prevOcc.keys(), ...newOcc.keys()])) {
+		if (deleted.has(h)) {
+			patternNotes.push(`  - ${h}: section removed (no occurrences left)`);
+			continue;
+		}
+		const before = logByHeading.get(h);
+		const after = state.get(h)!;
+		if (!before) {
+			patternNotes.push(`  - ${h}: new · ${after.count} total (${patternInfo.get(h)!.status})`);
+		} else if (before.count !== after.count) {
+			patternNotes.push(`  - ${h}: ${before.count} → ${after.count} total (${patternInfo.get(h)!.status})`);
+		}
+	}
+	if (patternNotes.length > 0) S.push("- Mistake log:", ...patternNotes);
+	if (resurrected.length > 0) S.push(`- Patterns kept despite net-zero occurrences (re-referenced): ${resurrected.join(", ")}`);
+	if (statusChanges.length > 0) {
+		S.push("- Status flips (recomputed from review history):", ...statusChanges.map((c) => `  - ${c}`));
+	}
+	if (lastKept.length > 0) {
+		S.push(
+			`- Note: Last stays at ${input.entry} for ${lastKept.join(", ")} (all of this review's occurrences removed; aggregate dates cannot regress — can only delay a future "fixed").`,
+		);
+	}
+	S.push(`- Progress: row for ${input.entry} replaced (${ps.overall} → ${s.overall} overall).`);
+	if (removedExprs.length > 0) S.push(`- Expression bank: removed ${removedExprs.join(", ")}.`);
+	if (addedExprs.length > 0) S.push(`- Expression bank: added ${addedExprs.join(", ")}.`);
+	if (keptExprs.length > 0) S.push(`- Expression bank: kept ${keptExprs.join(", ")} (pre-existing).`);
+	if (skippedExprs.length > 0) S.push(`- Expression bank: skipped as duplicate — ${skippedExprs.join(", ")}.`);
+	S.push(`- Next focus: ${input.amended.nextFocus}`);
+
+	return {
+		text: S.join("\n"),
+		details: {
+			entry: input.entry,
+			removedItems: removedItems.map((i) => i.wrong),
+			addedItems: addedItems.map((i) => i.wrong),
+			removedPatterns: [...deleted],
+			statusChanges,
+			removedExpressions: removedExprs,
+			addedExpressions: addedExprs,
+		},
+	};
+}
+
+// ---------------------------------------------------------------------------
 // diary_init — templates
 // ---------------------------------------------------------------------------
 
@@ -1039,8 +1382,7 @@ const TierSchema = Type.Object({
 	),
 });
 
-const CommitSchema = Type.Object({
-	entry: Type.String({ description: "Entry date YYYY-MM-DD (file stem of the reviewed entry)" }),
+const PayloadSchema = Type.Object({
 	tiers: Type.Array(TierSchema, { description: "Ordered most → least important; empty tiers are omitted" }),
 	upgrades: Type.Array(
 		Type.Object({
@@ -1102,8 +1444,25 @@ const CommitSchema = Type.Object({
 		),
 		{ description: "Patterns the learner used correctly this time" },
 	),
+});
+
+const CommitSchema = Type.Object({
+	entry: Type.String({ description: "Entry date YYYY-MM-DD (file stem of the reviewed entry)" }),
+	...PayloadSchema.properties,
 	reReview: Type.Optional(
-		Type.Boolean({ description: "Allow appending when the entry already has feedback (also replaces its progress row)" }),
+		Type.Boolean({
+			description: "Allow appending when the entry already has feedback (also replaces its progress row)",
+		}),
+	),
+});
+
+const AmendSchema = Type.Object({
+	entry: Type.String({ description: "Entry date YYYY-MM-DD whose newest feedback block is being corrected" }),
+	previous: Type.Unsafe<Payload>(
+		Type.Object({ ...PayloadSchema.properties, description: "The review EXACTLY as committed — verified against the file before anything is written" }),
+	),
+	amended: Type.Unsafe<Payload>(
+		Type.Object({ ...PayloadSchema.properties, description: "The corrected review: drop misread items, adjust corrected/scores/nextFocus" }),
 	),
 });
 
@@ -1150,6 +1509,26 @@ export default function japaneseDiaryReview(pi: ExtensionAPI): void {
 			} catch (e) {
 				return {
 					content: [{ type: "text", text: `diary_commit failed: ${(e as Error).message}` }],
+					details: {},
+					isError: true,
+				};
+			}
+		},
+	});
+
+	pi.registerTool({
+		name: "diary_amend",
+		label: "Diary amend",
+		description:
+			"Correct a committed review (run in the diary folder): pass `previous` (the review exactly as committed) and `amended` (the corrected review — drop misread items, change the corrected version, adjust scores). Verifies previous against the entry's newest feedback block, replaces it, and recomputes mistake-log counts/statuses (patterns can shrink or disappear), the progress row, and expression-bank entries. Nothing is written unless verification passes.",
+		parameters: AmendSchema,
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			try {
+				const result = amendReview(ctx.cwd, params as unknown as AmendInput);
+				return { content: [{ type: "text", text: result.text }], details: result.details };
+			} catch (e) {
+				return {
+					content: [{ type: "text", text: `diary_amend failed: ${(e as Error).message}` }],
 					details: {},
 					isError: true,
 				};

@@ -1,6 +1,6 @@
 ---
 name: japanese-diary-review
-description: Reviews, corrects, and grades a Japanese diary entry (YYYY-MM-DD.md) in the current folder (書けろ workflow) — the latest unreviewed one by default, or a specific/backdated entry when named. Appends tiered feedback (Obsidian callouts, ✗/✓), a corrected version, and an honest score out of 100; mistake-log/progress/expression-bank are maintained deterministically by the diary_digest / diary_commit / diary_init tools. Use when the user asks to review, correct, grade, or give feedback on their Japanese writing practice entry.
+description: Reviews, corrects, and grades a Japanese diary entry (YYYY-MM-DD.md) in the current folder (書けろ workflow) — the latest unreviewed one by default, or a specific/backdated entry when named. Appends tiered feedback (Obsidian callouts, ✗/✓), a corrected version, and an honest score out of 100; mistake-log/progress/expression-bank are maintained deterministically by the diary_digest / diary_commit / diary_amend / diary_init tools. Use when the user asks to review, correct, grade, or give feedback on their Japanese writing practice entry.
 ---
 
 # Japanese Diary Review (書けろ)
@@ -18,6 +18,7 @@ Reviews the learner's free-form Japanese writing. You provide the judgment — t
 3. `read` the target entry fully. In a batch, process entries one at a time, strictly earliest → latest.
 4. Analyze every sentence; triage (below); pick 2–3 upgrades; decide scores against the calibration. Call `diary_commit` for the entry, then move to the next.
 5. Reply in 2–3 sentences per review: overall verdict, the score, the single most valuable focus — point to the entry file, never paste the full feedback into chat. For a batch: one line per entry as you go, then a single wrap-up (score trajectory, patterns that escalated across the batch, the next focus).
+6. Close the session with `ask_user_question` — "Anything else, or done for now?" — options: **Done** · **Revise a review** · (last) **Ask a language question** (student-style specifics; nothing gets written). The learner can always pick Other and type freely. Repeat this ask after every follow-up (revision, question) until they pick Done.
 
 **Batch rule:** never re-read trackers or re-digest between entries — each commit's summary carries the state forward (new counts, status flips). The date-sorted tracker math is correct in any order; earliest → latest keeps the narrative and the "Nth time" annotations chronological.
 
@@ -50,6 +51,18 @@ Reviews the learner's free-form Japanese writing. You provide the judgment — t
 - **Naturalness**: density of on-target native collocations vs off-target vocabulary
 - **Flow**: paragraphing, topic shifts, connectives, presence of a voice
 - **Overall**: roughly the average of the three, adjusted by judgment
+
+## Correcting a review
+
+Reviews misread things — intent, register, what the learner was reaching for. When the learner disputes a mistake or wants the revision/scores adjusted (directly or via the session-close ask):
+
+1. If the review isn't in this session's context, `read` the entry's newest feedback section first.
+2. Rebuild `previous` **exactly as committed** — same items, upgrades, corrected text, scores. Do not paraphrase or "improve" it; `diary_amend` verifies it against the file and refuses on any mismatch.
+3. Build `amended` with the change: drop the misread item (and its `patterns[]` declaration if the pattern was new to that review), adjust `corrected`, and re-judge scores honestly — removing a real error raises Correctness; a cosmetic tweak doesn't. `nextFocus` and `cleanRecoveries` may change accordingly.
+4. Call `diary_amend` with `{ entry, previous, amended }`. It replaces the entry's newest feedback block and recomputes every tracker — counts shrink, patterns can disappear, the progress row is rescored, bank entries are added/removed.
+5. Confirm in one line: what changed, the new overall.
+
+Language questions ("is X also natural?", "why なのか here?") are answered in chat only — nothing is written. If an answer surfaces an expression worth banking or a real fix to the committed review, fold it into a `diary_amend`.
 
 ## Backfills and re-reviews
 

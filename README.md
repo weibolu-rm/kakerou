@@ -16,6 +16,10 @@ maintenance.
   - `diary_commit`: structured review in → rendered feedback out, tracker
     updates with exact counts and computed statuses. Validate-then-write;
     the original composition is never touched.
+  - `diary_amend`: correct a committed review (misread mistake, different
+    revision, adjusted scores) — verifies the stated previous payload against
+    the entry, replaces the feedback block, and recomputes every tracker
+    delta (counts shrink, patterns can disappear, bank entries are removed).
   - `diary_init`: scaffolds `profile.md` + trackers for a new diary folder.
 
 Output is emoji-free Obsidian-flavored markdown: callouts + `✗ → ✓` markers,
@@ -47,6 +51,10 @@ Your diary folder holds `YYYY-MM-DD.md` entries. Run pi in that folder.
 - Several unreviewed entries (e.g. written while offline): the agent asks —
   review all in order (earliest → latest) or a specific one. Batches commit
   one entry at a time, chronologically, with a single wrap-up at the end.
+- Disputed a correction, or your intent was misread? Every session ends with
+  an ask — Done / Revise a review / Ask a language question — and revisions
+  go through `diary_amend`: the feedback block is replaced and every tracker
+  (counts, statuses, scores, bank entries) is recomputed.
 - Backfills (reviewing an older entry after newer ones) and explicit
   re-reviews are supported.
 

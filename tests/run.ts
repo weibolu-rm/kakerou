@@ -410,6 +410,108 @@ async function main(): Promise<void> {
 		);
 	}
 
+	// 12. amend: drop a misread item, adjust scores
+	{
+		const dir = fixtureDir();
+		await call(dir, "diary_commit", COMMIT_0202);
+		const committed = read(dir, "2026-02-02.md");
+		const previous = { ...COMMIT_0202 };
+		delete previous.entry;
+		const amended = structuredClone(previous);
+		amended.tiers[0].items = amended.tiers[0].items.filter((i: any) => i.wrong !== "単なるの気の迷いか");
+		amended.corrected = amended.corrected.replace("単なる気の迷いなのか", "単なるの気の迷いか");
+		amended.scores = { ...amended.scores, correctness: 74, overall: 73 };
+		const res = await call(dir, "diary_amend", { entry: "2026-02-02", previous, amended });
+		check("amend succeeds", !res.isError, res.content[0].text);
+		const after = read(dir, "2026-02-02.md");
+		check("amend replaces (not stacks) feedback", (after.match(/^## Feedback/gm) ?? []).length === 1);
+		check(
+			"amend keeps composition prefix byte-identical",
+			after.startsWith(committed.split("\n---\n\n")[0]),
+		);
+		check("amend drops the misread item", !after.includes("単なるの気の迷いか →"));
+		check("amend re-renders with new scores", after.includes("| Correctness | 74/100 |"));
+		const log = read(dir, "mistake-log.md");
+		check(
+			"amend decrements pattern count",
+			log.includes(
+					"- Count: 2 · First: [[2026-01-12]] · Last: [[2026-02-02]] · Status: recurring",
+			),
+		);
+		check(
+			"amend removes the dropped pattern's annotation",
+			!after.includes("mistake-log#な-adjective") && after.includes("[[mistake-log#Register mixing (ですます vs plain form)]]"),
+		);
+		const prog = read(dir, "progress.md");
+		check("amend rescores progress row", prog.includes("| 74 | 68 | 72 | **73** |"));
+	}
+
+	// 13. amend removes a pattern created by the review + bank entry + clean recovery
+	{
+		const dir = fixtureDir();
+		await call(dir, "diary_commit", COMMIT_0202);
+		const previous = { ...COMMIT_0202 };
+		delete previous.entry;
+		const amended = structuredClone(previous);
+		amended.tiers[0].items = amended.tiers[0].items.filter((i: any) => i.wrong !== "本当の興味か");
+		amended.patterns = [];
+		amended.upgrades = amended.upgrades.filter((u: any) => u.expression !== "燃え尽きる（もえつきる）");
+		amended.cleanRecoveries = [];
+		const res = await call(dir, "diary_amend", { entry: "2026-02-02", previous, amended });
+		check("amend (delete path) succeeds", !res.isError, res.content[0].text);
+		check("amend deletes the review-created pattern", !read(dir, "mistake-log.md").includes("### Embedded questions: なのか"));
+		const bank = read(dir, "expression-bank.md");
+		check("amend removes the bank entry it added", !bank.includes("### 燃え尽きる（もえつきる）"));
+		check("amend keeps other bank entries", bank.includes("### だんだん〜てくる") && bank.includes("### のめり込む"));
+		check("amend removes dropped clean recovery", !read(dir, "mistake-log.md").includes("Used correctly in [[2026-02-02]]"));
+		const lines = read(dir, "mistake-log.md").split("\n");
+		check("no double blank lines left behind", !lines.some((l, i) => l === "" && lines[i - 1] === ""));
+	}
+
+	// 14. amend refuses a mismatched previous
+	{
+		const dir = fixtureDir();
+		await call(dir, "diary_commit", COMMIT_0202);
+		const before = read(dir, "mistake-log.md");
+		const previous = { ...COMMIT_0202 };
+		delete previous.entry;
+		previous.scores = { ...previous.scores, correctness: 71 };
+		const res = await call(dir, "diary_amend", { entry: "2026-02-02", previous, amended: previous });
+		check("amend refuses mismatched previous", res.isError && res.content[0].text.includes("does not match"));
+		check("refusal wrote nothing", read(dir, "mistake-log.md") === before);
+	}
+
+	// 15. amend on an unreviewed entry + adding a missed item
+	{
+		const dir = fixtureDir();
+		const res = await call(dir, "diary_amend", {
+			entry: "2026-02-02",
+			previous: { tiers: [], upgrades: [], corrected: "", scores: { correctness: 1, naturalness: 1, flow: 1, overall: 1 }, nextFocus: "x" },
+			amended: { tiers: [], upgrades: [], corrected: "", scores: { correctness: 1, naturalness: 1, flow: 1, overall: 1 }, nextFocus: "x" },
+		});
+		check("amend without feedback errors", res.isError && res.content[0].text.includes("no feedback section"));
+
+		const dir2 = fixtureDir();
+		await call(dir2, "diary_commit", COMMIT_0202);
+		const previous = { ...COMMIT_0202 };
+		delete previous.entry;
+		const amended = structuredClone(previous);
+		amended.tiers[2].items.push({
+			wrong: "１回",
+			right: "1回",
+			note: "Half-width digits.",
+			pattern: "Notation consistency",
+		});
+		const res2 = await call(dir2, "diary_amend", { entry: "2026-02-02", previous, amended });
+		check("amend adding a missed item succeeds", !res2.isError, res2.content[0].text);
+		check(
+			"amend increments pattern count",
+			read(dir2, "mistake-log.md").includes(
+				"- Count: 4 · First: [[2026-01-05]] · Last: [[2026-02-02]] · Status: recurring",
+			),
+		);
+	}
+
 	console.log(`\n${passed} passed, ${failed} failed`);
 	if (failed > 0) process.exit(1);
 }
