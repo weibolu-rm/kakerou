@@ -1459,10 +1459,16 @@ const CommitSchema = Type.Object({
 const AmendSchema = Type.Object({
 	entry: Type.String({ description: "Entry date YYYY-MM-DD whose newest feedback block is being corrected" }),
 	previous: Type.Unsafe<Payload>(
-		Type.Object({ ...PayloadSchema.properties, description: "The review EXACTLY as committed — verified against the file before anything is written" }),
+		Type.Object(
+			{ ...PayloadSchema.properties },
+			{ description: "The review EXACTLY as committed — verified against the file before anything is written" },
+		),
 	),
 	amended: Type.Unsafe<Payload>(
-		Type.Object({ ...PayloadSchema.properties, description: "The corrected review: drop misread items, adjust corrected/scores/nextFocus" }),
+		Type.Object(
+			{ ...PayloadSchema.properties },
+			{ description: "The corrected review: drop misread items, adjust corrected/scores/nextFocus" },
+		),
 	),
 });
 
