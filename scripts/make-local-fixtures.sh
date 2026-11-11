@@ -3,13 +3,12 @@
 # Read-only on the vault: copies files out, never writes or deletes anything there.
 set -euo pipefail
 
-VAULT="${DIARY_VAULT_DIR:-$HOME/Documents/diary-vault}"
+VAULT="${DIARY_VAULT_DIR:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="$ROOT/fixtures/local"
 
-if [ ! -d "$VAULT" ]; then
-  echo "Vault not found: $VAULT" >&2
-  echo "Set DIARY_VAULT_DIR to override." >&2
+if [ -z "$VAULT" ]; then
+  echo "DIARY_VAULT_DIR is not set — point it at your diary vault folder." >&2
   exit 1
 fi
 

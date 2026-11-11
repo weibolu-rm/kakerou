@@ -5,6 +5,9 @@
 	"keywords": ["pi-package"],
 	"license": "MIT",
 	"type": "module",
+	"scripts": {
+		"test": "node tests/run.ts"
+	},
 	"peerDependencies": {
 		"typebox": "*"
 	},

@@ -66,5 +66,5 @@ Your diary folder holds `YYYY-MM-DD.md` entries. Run pi in that folder.
 
 `scripts/check-local.sh` copies a real vault into gitignored
 `fixtures/local/` and runs a digest on the copy — see
-`scripts/make-local-fixtures.sh` (override the source with `DIARY_VAULT_DIR`).
+`scripts/make-local-fixtures.sh` (set the source with `DIARY_VAULT_DIR`).
 Real diary content is never committed.
