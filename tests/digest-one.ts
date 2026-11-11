@@ -3,7 +3,7 @@
  *   node tests/digest-one.ts /path/to/diary-folder
  */
 
-import ext from "../extensions/japanese-diary-review.ts";
+import ext from "../extensions/kakerou.ts";
 
 const dir = process.argv[2];
 if (!dir) {

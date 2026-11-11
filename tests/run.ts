@@ -1,5 +1,5 @@
 /**
- * Test suite for the japanese-diary-review extension tools.
+ * Test suite for the kakerou extension tools.
  * Runs the tools' execute() directly against copies of fixtures/synthetic.
  *
  *   node tests/run.ts                   # run all tests
@@ -9,7 +9,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import ext from "../extensions/japanese-diary-review.ts";
+import ext from "../extensions/kakerou.ts";
 
 // --- tiny harness -----------------------------------------------------------
 

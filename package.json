@@ -1,7 +1,7 @@
 {
-	"name": "japanese-diary-review",
+	"name": "kakerou",
 	"version": "0.1.0",
-	"description": "Japanese diary review workflow for pi: teaching-judgment skill plus deterministic tracker/render tools (書けろ)",
+	"description": "Japanese diary review workflow for pi: teaching-judgment skill plus deterministic tracker/render tools (書けろう)",
 	"keywords": ["pi-package"],
 	"license": "MIT",
 	"type": "module",

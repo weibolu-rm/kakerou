@@ -1,8 +1,8 @@
 /**
- * japanese-diary-review — deterministic bookkeeping for the Japanese diary
- * review (書けろ) workflow.
+ * kakerou — deterministic bookkeeping for the Japanese diary
+ * review (書けろう) workflow.
  *
- * The skill (skills/japanese-diary-review/SKILL.md) provides the teaching
+ * The skill (skills/kakerou/SKILL.md) provides the teaching
  * judgment; these tools provide the mechanics:
  *
  *   diary_digest — one-call context: entries + review state, ACTIVE mistake
@@ -1257,7 +1257,7 @@ function trackerTemplates(): Record<string, string> {
 			"",
 			"# Mistake Pattern Log",
 			"",
-			"Auto-maintained by the `japanese-diary-review` skill. One `###` section per error pattern,",
+			"Auto-maintained by the `kakerou` skill. One `###` section per error pattern,",
 			"grouped by category. Repeat offenders get flagged explicitly in future reviews.",
 			"",
 			"**Status:** seen once → recurring (2+ entries) → fixed (absent from 3 consecutive reviewed entries)",
@@ -1279,7 +1279,7 @@ function trackerTemplates(): Record<string, string> {
 			"",
 			"# Score History",
 			"",
-			"One row per reviewed entry, maintained by the `japanese-diary-review` skill. Scores are honest —",
+			"One row per reviewed entry, maintained by the `kakerou` skill. Scores are honest —",
 			"the goal is a real trend line, not encouragement.",
 			"",
 			"| Date | Entry | Correctness | Naturalness | Flow | Overall | Next focus |",

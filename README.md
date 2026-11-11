@@ -1,4 +1,4 @@
-# japanese-diary-review (書けろ)
+# kakerou (書けろう)
 
 A [pi](https://github.com/badlogic/pi-mono) package that reviews Japanese diary
 entries: tiered feedback, a corrected version, and honest scores appended to
@@ -7,9 +7,9 @@ maintenance.
 
 ## How it works
 
-- **Skill** (`skills/japanese-diary-review`): the teaching judgment — triage,
+- **Skill** (`skills/kakerou`): the teaching judgment — triage,
   scoring calibration, voice preservation.
-- **Extension** (`extensions/japanese-diary-review.ts`): the mechanics —
+- **Extension** (`extensions/kakerou.ts`): the mechanics —
   - `diary_digest`: flat-sized context (active patterns with exact counts and
     statuses, recent scores, expression bank, learner profile) regardless of
     how much history exists — fixed patterns are hidden.
@@ -35,11 +35,11 @@ guessed.
 
 ## Install
 
-    pi install git:github.com/weibolu-rm/japanese-diary-review
+    pi install git:github.com/weibolu-rm/kakerou
 
 Try it without installing:
 
-    cd your-diary-folder && pi -e /path/to/japanese-diary-review
+    cd your-diary-folder && pi -e /path/to/kakerou
 
 ## Use
 

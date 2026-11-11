@@ -7,7 +7,7 @@ tags:
 
 # Mistake Pattern Log
 
-Auto-maintained by the `japanese-diary-review` skill. One section per error pattern, grouped by category. Repeat offenders get flagged explicitly in future reviews.
+Auto-maintained by the `kakerou` skill. One section per error pattern, grouped by category. Repeat offenders get flagged explicitly in future reviews.
 
 **Status:** seen once → recurring (2+ entries) → fixed (absent from 3 consecutive reviewed entries)
 

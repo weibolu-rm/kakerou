@@ -1,9 +1,9 @@
 ---
-name: japanese-diary-review
-description: Reviews, corrects, and grades a Japanese diary entry (YYYY-MM-DD.md) in the current folder (書けろ workflow) — the latest unreviewed one by default, or a specific/backdated entry when named. Appends tiered feedback (Obsidian callouts, ✗/✓), a corrected version, and an honest score out of 100; mistake-log/progress/expression-bank are maintained deterministically by the diary_digest / diary_commit / diary_amend / diary_init tools. Use when the user asks to review, correct, grade, or give feedback on their Japanese writing practice entry.
+name: kakerou
+description: Reviews, corrects, and grades a Japanese diary entry (YYYY-MM-DD.md) in the current folder (書けろう workflow) — the latest unreviewed one by default, or a specific/backdated entry when named. Appends tiered feedback (Obsidian callouts, ✗/✓), a corrected version, and an honest score out of 100; mistake-log/progress/expression-bank are maintained deterministically by the diary_digest / diary_commit / diary_amend / diary_init tools. Use when the user asks to review, correct, grade, or give feedback on their Japanese writing practice entry.
 ---
 
-# Japanese Diary Review (書けろ)
+# 書けろう (kakerou)
 
 Reviews the learner's free-form Japanese writing. You provide the judgment — triage, calibration, voice preservation. All bookkeeping (formatting, tracker updates, counts, statuses) is done deterministically by the `diary_*` tools from this package. If those tools are not available, stop and tell the user the package is misinstalled (skill without extension).
 

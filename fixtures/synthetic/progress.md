@@ -7,7 +7,7 @@ tags:
 
 # Score History
 
-One row per reviewed entry, maintained by the `japanese-diary-review` skill. Scores are honest, calibrated against the rubric in the skill — the goal is a real trend line, not encouragement.
+One row per reviewed entry, maintained by the `kakerou` skill. Scores are honest, calibrated against the rubric in the skill — the goal is a real trend line, not encouragement.
 
 | Date | Entry | Correctness | Naturalness | Flow | Overall | Next focus |
 |---|---|---|---|---|---|---|
